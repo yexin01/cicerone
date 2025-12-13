@@ -4,7 +4,7 @@
 */
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { Itinerary, TripInput, WishlistItem, Activity } from '../types';
+import { Itinerary, TripInput, WishlistItem, Activity } from '../../shared/types';
 
 // Strictly use process.env.API_KEY as defined in vite.config.ts
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -60,7 +60,9 @@ const ActivitySchema: Schema = {
     priceDetail: PriceDetailSchema,
     isLocked: { type: Type.BOOLEAN },
     isMandatory: { type: Type.BOOLEAN },
-    transportToNext: { type: Type.STRING }
+    transportToNext: { type: Type.STRING },
+    googleMapsUrl: { type: Type.STRING },
+    imageUrl: { type: Type.STRING }
   },
   required: ['id', 'time', 'title', 'location', 'type', 'durationMinutes']
 };
@@ -89,7 +91,8 @@ const ItinerarySchema: Schema = {
 };
 
 export const generateItinerary = async (input: TripInput): Promise<Itinerary> => {
-  const model = "gemini-2.5-flash";
+  // Use Pro model for complex planning and reasoning
+  const model = "gemini-3-pro-preview";
   
   const prompt = `
     Create a detailed travel itinerary for ${input.destination}.
@@ -104,11 +107,13 @@ export const generateItinerary = async (input: TripInput): Promise<Itinerary> =>
     - Departure: ${input.logistics.departure.type} from ${input.logistics.departure.location} (${input.logistics.departure.time}). Address: ${input.logistics.departure.address || 'N/A'}.
     - Stay: ${input.logistics.accommodation.name} at ${input.logistics.accommodation.address}.
 
-    Requirements:
-    1. Include the arrival and departure as 'logistics' activities.
-    2. Provide coordinates (approx lat/lng) for each location for map visualization.
-    3. Include price details: is it free? Is there a student/senior discount? Provide a real booking link if possible.
-    4. For paid items, include the estimated cost.
+    IMPORTANT Requirements:
+    1. You have access to Google Maps and Google Search.
+    2. Use Google Maps to verify the existence, location, and address of every place. Provide the 'googleMapsUrl'.
+    3. Use Google Search to find a representative image URL ('imageUrl') for the activities if possible.
+    4. Provide coordinates (approx lat/lng) for each location for map visualization.
+    5. Include price details: is it free? Is there a student/senior discount? Provide a real booking link if possible.
+    6. For paid items, include the estimated cost.
   `;
 
   try {
@@ -116,6 +121,8 @@ export const generateItinerary = async (input: TripInput): Promise<Itinerary> =>
       model,
       contents: prompt,
       config: {
+        // We use tools, so strict JSON schema via responseSchema might conflict with tool output in some cases, 
+        // but supplying a schema in the prompt instructions is robust for Pro.
         tools: [{ googleMaps: {}, googleSearch: {} }],
         systemInstruction: "You are Cicerone, an expert AI travel architect. Output strictly valid JSON matching the itinerary structure. Do not use markdown blocks."
       }
@@ -148,7 +155,8 @@ export const generateItinerary = async (input: TripInput): Promise<Itinerary> =>
 };
 
 export const refineItinerary = async (currentItinerary: Itinerary, userRequest: string): Promise<Itinerary> => {
-  const model = "gemini-2.5-flash";
+  // Use Pro for better context handling during refinement
+  const model = "gemini-3-pro-preview";
 
   const prompt = `
     Refine this itinerary based on the user's request: "${userRequest}".
@@ -160,7 +168,8 @@ export const refineItinerary = async (currentItinerary: Itinerary, userRequest: 
     1. KEEP locked activities (isLocked=true) FIXED in time and place.
     2. Respect 'blocked' activities as unavailable time slots.
     3. If reordering is implied, adjust travel times and neighboring activities.
-    4. Output the FULL updated itinerary JSON.
+    4. Ensure activities marked as 'isMandatory=true' are included in the itinerary.
+    5. Output the FULL updated itinerary JSON.
   `;
 
   try {
@@ -210,6 +219,7 @@ export const refineItinerary = async (currentItinerary: Itinerary, userRequest: 
 };
 
 export const recalculateDaySchedule = async (activities: Activity[], previousLocation?: string): Promise<Activity[]> => {
+  // Flash is sufficient for pure calculation/reordering tasks and faster
   const model = "gemini-2.5-flash";
 
   const prompt = `
@@ -315,8 +325,9 @@ export const analyzeSocialContent = async (content: string): Promise<WishlistIte
 };
 
 export const chatWithAgent = async (history: {role: string, parts: {text: string}[]}[], message: string) => {
+   // Pro model for better conversation
    const chat = ai.chats.create({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       history: history,
       config: {
           systemInstruction: "You are Cicerone. Be helpful, technical, and concise.",

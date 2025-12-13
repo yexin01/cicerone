@@ -38,7 +38,7 @@ export const saveItineraryToCloud = async (itinerary: Itinerary, userId: string)
     if (!supabase) throw new Error("Cloud not configured");
     
     const { error } = await supabase
-        .from('itineraries')
+        .from('travels')
         .upsert({
             id: itinerary.id,
             user_id: userId,
@@ -54,7 +54,7 @@ export const fetchItinerariesFromCloud = async () => {
     if (!supabase) return [];
     
     const { data, error } = await supabase
-        .from('itineraries')
+        .from('travels')
         .select('*')
         .order('created_at', { ascending: false });
 
