@@ -106,7 +106,8 @@ const App: React.FC = () => {
       setView('planner');
       saveToHistory(result);
     } catch (error) {
-      alert("Failed to generate itinerary. Please try again.");
+      console.error("Generation failed:", error);
+      alert("Failed to generate itinerary. Please try again. Check console for details.");
     } finally {
       setIsLoading(false);
     }
