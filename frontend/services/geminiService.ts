@@ -210,7 +210,71 @@ export const refineItinerary = async (currentItinerary: Itinerary, userRequest: 
 };
 
 export const recalculateDaySchedule = async (activities: Activity[], previousLocation?: string): Promise<Activity[]> => {
-    return activities;
+  const model = "gemini-2.5-flash";
+
+  const prompt = `
+    Recalculate the schedule for this list of activities for a single day.
+    The user has reordered them manually.
+    
+    Start Location for the day: ${previousLocation || 'City Center'}
+    Start Time: Usually 09:00 or 10:00 unless an activity is locked earlier.
+
+    Activities (in desired order):
+    ${JSON.stringify(activities.map(a => ({
+        id: a.id,
+        title: a.title,
+        location: a.location,
+        durationMinutes: a.durationMinutes,
+        isLocked: a.isLocked,
+        time: a.time
+    })))}
+
+    Tasks:
+    1. Calculate realistic start times ('time') for each activity sequentially.
+    2. Account for travel time between the previous location (or start location) and the current activity.
+    3. Respect 'isLocked' activities: 
+       - If an activity is locked, its time MUST NOT change. 
+       - Schedule surrounding activities around it. 
+       - If there is a conflict (overlap), adjust non-locked activities.
+    4. Generate a 'transportToNext' string for each activity describing how to get to the *next* activity (e.g., "Walk: 15m", "Taxi: 10m").
+    5. Return the full list of activities with updated 'time' and 'transportToNext'.
+
+    Output strictly valid JSON array of activities.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        tools: [{ googleMaps: {} }],
+        systemInstruction: "You are a logistics expert. Update the schedule times based on travel distance and duration. Output strict JSON."
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
+
+    const jsonStr = cleanJson(text);
+    const updatedActivities = JSON.parse(jsonStr) as Activity[];
+
+    // Merge back to preserve other fields (images, notes, etc.)
+    return activities.map(original => {
+        const updated = updatedActivities.find(u => u.id === original.id);
+        if (updated) {
+            return {
+                ...original,
+                time: updated.time,
+                transportToNext: updated.transportToNext
+            };
+        }
+        return original;
+    });
+
+  } catch (error) {
+    console.error("Recalculate error:", error);
+    return activities; // Fallback to original
+  }
 };
 
 export const analyzeSocialContent = async (content: string): Promise<WishlistItem> => {

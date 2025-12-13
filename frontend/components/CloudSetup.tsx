@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Cloud, X, Check, Loader2, LogIn, LogOut, Settings, Mail, Lock, UserPlus, AlertCircle } from 'lucide-react';
+import { Cloud, X, Check, Loader2, LogIn, LogOut, Settings, Mail, Lock, UserPlus, AlertCircle, Eye, EyeOff, User } from 'lucide-react';
 import { getSupabase, signOut } from '../services/supabaseClient';
 
 interface CloudSetupProps {
@@ -18,7 +18,8 @@ interface CloudSetupProps {
 
 const CloudSetup: React.FC<CloudSetupProps> = ({ isOpen, onClose, onLoginSuccess, onLogout, currentUser }) => {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [authCreds, setAuthCreds] = useState({ email: '', password: '' });
+  const [authCreds, setAuthCreds] = useState({ email: '', password: '', fullName: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -54,9 +55,22 @@ const CloudSetup: React.FC<CloudSetupProps> = ({ isOpen, onClose, onLoginSuccess
       try {
           let result;
           if (authMode === 'signup') {
-              result = await supabase.auth.signUp(authCreds);
+              if (!authCreds.fullName.trim()) throw new Error("Please enter your name.");
+
+              result = await supabase.auth.signUp({
+                  email: authCreds.email,
+                  password: authCreds.password,
+                  options: {
+                      data: {
+                          full_name: authCreds.fullName
+                      }
+                  }
+              });
           } else {
-              result = await supabase.auth.signInWithPassword(authCreds);
+              result = await supabase.auth.signInWithPassword({
+                  email: authCreds.email,
+                  password: authCreds.password
+              });
           }
 
           if (result.error) throw result.error;
@@ -186,6 +200,24 @@ const CloudSetup: React.FC<CloudSetupProps> = ({ isOpen, onClose, onLoginSuccess
                    )}
 
                    <form onSubmit={handleEmailAuth} className="space-y-4">
+                       {/* Name Field (Signup Only) */}
+                       {authMode === 'signup' && (
+                           <div className="space-y-1.5 animate-in fade-in slide-in-from-top-4 duration-300">
+                                <label className="text-xs font-bold text-zinc-500 ml-1">Full Name</label>
+                                <div className="relative group">
+                                    <User className="absolute left-3.5 top-3.5 w-4 h-4 text-zinc-400 group-focus-within:text-primary transition-colors"/>
+                                    <input 
+                                        type="text"
+                                        required
+                                        placeholder="John Doe"
+                                        className="w-full pl-10 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                                        value={authCreds.fullName}
+                                        onChange={e => setAuthCreds({...authCreds, fullName: e.target.value})}
+                                    />
+                                </div>
+                           </div>
+                       )}
+
                        <div className="space-y-1.5">
                             <label className="text-xs font-bold text-zinc-500 ml-1">Email</label>
                             <div className="relative group">
@@ -205,14 +237,21 @@ const CloudSetup: React.FC<CloudSetupProps> = ({ isOpen, onClose, onLoginSuccess
                             <div className="relative group">
                                 <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-zinc-400 group-focus-within:text-primary transition-colors"/>
                                 <input 
-                                    type="password"
+                                    type={showPassword ? "text" : "password"}
                                     required
                                     minLength={6}
                                     placeholder="••••••••"
-                                    className="w-full pl-10 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                                    className="w-full pl-10 pr-12 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
                                     value={authCreds.password}
                                     onChange={e => setAuthCreds({...authCreds, password: e.target.value})}
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-3 p-0.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
                             </div>
                             {authMode === 'signup' && (
                                 <p className="text-[10px] text-zinc-400 ml-1">Must be at least 6 characters</p>

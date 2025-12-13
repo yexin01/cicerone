@@ -13,6 +13,7 @@ import { analyzeSocialContent } from '../../frontend/services/geminiService';
 interface ItineraryViewProps {
   itinerary: Itinerary;
   onUpdateActivity: (dayIndex: number, activityId: string, updates: Partial<Activity>) => void;
+  onUpdateItinerary: (updates: Partial<Itinerary>) => void;
   onRefineRequest: (prompt: string) => void;
   onReorderActivities: (dayIndex: number, newActivities: Activity[]) => void;
   onAddWishlistItem: (item: WishlistItem) => void;
@@ -20,7 +21,7 @@ interface ItineraryViewProps {
 }
 
 const ItineraryView: React.FC<ItineraryViewProps> = ({ 
-  itinerary, onUpdateActivity, onRefineRequest, onReorderActivities, onAddWishlistItem, isRefining 
+  itinerary, onUpdateActivity, onUpdateItinerary, onRefineRequest, onReorderActivities, onAddWishlistItem, isRefining 
 }) => {
   const [selectedDay, setSelectedDay] = useState(0);
   const [editingItem, setEditingItem] = useState<{ id: string, field: string } | null>(null);
@@ -224,7 +225,33 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
         <div>
           <h1 className="text-3xl font-heading font-bold mb-1">{itinerary.destination}</h1>
           <div className="flex gap-4 text-xs md:text-sm text-zinc-500">
-             <span className="flex items-center gap-1 font-mono"><DollarSign className="w-4 h-4"/> Budget: {itinerary.currency}{itinerary.totalBudget}</span>
+             <span className="flex items-center gap-1 font-mono">
+                <DollarSign className="w-4 h-4"/> Budget: {itinerary.currency}
+                {editingItem?.id === 'root' && editingItem.field === 'totalBudget' ? (
+                    <input 
+                        type="number"
+                        className="w-20 bg-transparent border-b border-primary outline-none focus:bg-white dark:focus:bg-zinc-800"
+                        autoFocus
+                        defaultValue={itinerary.totalBudget}
+                        onBlur={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!isNaN(val)) onUpdateItinerary({ totalBudget: val });
+                            setEditingItem(null);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.currentTarget.blur();
+                        }}
+                    />
+                ) : (
+                    <span 
+                        className="cursor-pointer hover:text-primary border-b border-dashed border-transparent hover:border-primary transition-colors"
+                        onClick={() => setEditingItem({ id: 'root', field: 'totalBudget' })}
+                        title="Click to edit budget"
+                    >
+                        {itinerary.totalBudget}
+                    </span>
+                )}
+             </span>
              <span className="flex items-center gap-1 font-mono text-primary"><DollarSign className="w-4 h-4"/> Est. Total: {itinerary.currency}{calculateTotalCost()}</span>
           </div>
         </div>

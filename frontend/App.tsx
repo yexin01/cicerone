@@ -112,6 +112,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateItinerary = (updates: Partial<Itinerary>) => {
+    if (!itinerary) return;
+    const newItinerary = { ...itinerary, ...updates };
+    setItinerary(newItinerary);
+    saveToHistory(newItinerary);
+  };
+
   const handleUpdateActivity = async (dayIndex: number, activityId: string, updates: Partial<Activity>) => {
     if (!itinerary) return;
     
@@ -345,6 +352,7 @@ const App: React.FC = () => {
                <ItineraryView 
                  itinerary={itinerary} 
                  onUpdateActivity={handleUpdateActivity}
+                 onUpdateItinerary={handleUpdateItinerary}
                  onRefineRequest={(prompt) => {
                    setRefinePrompt(prompt);
                    handleRefine();
