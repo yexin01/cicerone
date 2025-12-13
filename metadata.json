@@ -1,0 +1,7 @@
+{
+  "name": "Cicerone AI",
+  "description": "Your intelligent travel planning agent.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
