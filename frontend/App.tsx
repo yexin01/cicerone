@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TripInput, Itinerary, Activity, WishlistItem } from '../shared/types';
 import { generateItinerary, refineItinerary, recalculateDaySchedule } from './services/geminiService';
-import { getSupabase, saveItineraryToCloud, fetchItinerariesFromCloud } from './services/supabaseClient';
+import { getSupabase, saveItineraryToCloud, fetchItinerariesFromCloud, signOut } from './services/supabaseClient';
 import TravelForm from './components/TravelForm';
 import ItineraryView from './components/ItineraryView';
 import AIChat from './components/AIChat';
@@ -59,7 +59,7 @@ const App: React.FC = () => {
                     loadCloudPlans();
                     // Close the modal if it's open (e.g. after a redirect)
                     setIsCloudSetupOpen(false);
-                } else {
+                } else if (event === 'SIGNED_OUT') {
                     setUser(null);
                     setSavedPlans([]);
                 }
@@ -368,7 +368,11 @@ const App: React.FC = () => {
           isOpen={isCloudSetupOpen}
           onClose={() => setIsCloudSetupOpen(false)}
           onLoginSuccess={(u) => { setUser(u); loadCloudPlans(); }}
-          onLogout={() => { setUser(null); setSavedPlans([]); }}
+          onLogout={() => { 
+              setUser(null); 
+              setSavedPlans([]); 
+              // Note: signOut is called inside CloudSetup, App just updates local state
+          }}
           currentUser={user}
       />
     </div>
