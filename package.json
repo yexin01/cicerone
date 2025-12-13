@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^0.1.2",
+    "@google/genai": "^0.1.0",
     "@supabase/supabase-js": "^2.39.7",
     "framer-motion": "^11.0.8",
     "leaflet": "^1.9.4",
