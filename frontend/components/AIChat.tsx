@@ -4,7 +4,7 @@
 */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Bot, Sparkles } from 'lucide-react';
+import { MessageSquare, X, Send, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { chatWithAgent } from '../services/geminiService';
 import { ChatMessage } from '../types';
