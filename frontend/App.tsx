@@ -89,11 +89,29 @@ const App: React.FC = () => {
              await saveItineraryToCloud(plan, user.id);
           } catch(e) {
              console.error("Cloud save failed", e);
-             alert("Saved locally. Cloud sync failed.");
+             // Silent fail for auto-save, alerts handled by manual save
           }
       } else {
           localStorage.setItem('cicerone_saved_plans', JSON.stringify(updated));
       }
+  };
+
+  const handleManualSave = async () => {
+        if (!itinerary) return;
+        if (!user) {
+            setIsCloudSetupOpen(true);
+            return;
+        }
+        
+        // Explicit save logic
+        await saveItineraryToCloud(itinerary, user.id);
+        
+        // Update local list just in case
+        const updated = [itinerary, ...savedPlans.filter(p => p.id !== itinerary.id)];
+        setSavedPlans(updated);
+        
+        // User feedback is handled by button state in ItineraryView or we can alert here
+        alert("Trip saved successfully to Cicerone Cloud!");
   };
 
   const handleCreateItinerary = async (input: TripInput) => {
@@ -360,6 +378,7 @@ const App: React.FC = () => {
                  }}
                  onReorderActivities={handleReorderActivities}
                  onAddWishlistItem={handleAddWishlistItem}
+                 onSave={handleManualSave}
                  isRefining={isRefining}
                />
             </motion.div>

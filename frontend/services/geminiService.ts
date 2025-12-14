@@ -4,7 +4,7 @@
 */
 
 import { GoogleGenAI } from "@google/genai";
-import { Itinerary, TripInput, WishlistItem, Activity } from '../types';
+import { Itinerary, TripInput, WishlistItem, Activity } from '../../shared/types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -50,7 +50,9 @@ export const generateItinerary = async (input: TripInput): Promise<Itinerary> =>
     1. You have access to Google Maps. Use it to verify locations and addresses.
     2. Provide coordinates (approx lat/lng) for each location for map visualization.
     3. Include price details: is it free? Is there a student/senior discount? Provide a real booking link if possible.
-    4. For paid items, include the estimated cost.
+    4. For 'transportToNext', provide 2-3 viable options to reach the NEXT activity in this specific format: "Mode: Duration (Cost) | Mode: Duration (Cost)". 
+       Example: "Walk: 15m (Free) | Uber: 5m ($12) | Metro: 10m ($2)".
+    5. For paid items, include the estimated cost.
     
     Output STRICTLY valid JSON (no markdown, no extra text) matching this structure:
     {
@@ -109,9 +111,14 @@ export const generateItinerary = async (input: TripInput): Promise<Itinerary> =>
         throw new Error("Failed to parse AI response");
     }
     
-    // Client-side hydration
+    // Client-side hydration - Persist Context
     data.logistics = input.logistics;
     data.wishlist = [];
+    data.startDate = input.startDate;
+    data.durationDays = input.durationDays;
+    data.travelers = input.travelers;
+    data.interests = input.interests;
+
     if (data.days) {
         data.days.forEach(day => {
         day.activities.forEach(act => {
@@ -143,7 +150,8 @@ export const refineItinerary = async (currentItinerary: Itinerary, userRequest: 
     1. KEEP locked activities (isLocked=true) FIXED in time and place.
     2. Respect 'blocked' activities as unavailable time slots.
     3. If reordering is implied, adjust travel times and neighboring activities.
-    4. Output the FULL updated itinerary JSON.
+    4. Recalculate 'transportToNext' for changed segments using format: "Mode: Duration (Cost) | Mode: Duration (Cost)".
+    5. Output the FULL updated itinerary JSON.
   `;
 
   try {
@@ -174,6 +182,7 @@ export const refineItinerary = async (currentItinerary: Itinerary, userRequest: 
             act.feedback = old.feedback;
             act.actualCost = old.actualCost;
             act.userNotes = old.userNotes;
+            act.selectedTransport = old.selectedTransport;
             if (old.isLocked) Object.assign(act, old); 
             } else {
             act.feedback = 'neutral';
@@ -184,6 +193,11 @@ export const refineItinerary = async (currentItinerary: Itinerary, userRequest: 
     }
     data.wishlist = currentItinerary.wishlist;
     data.logistics = currentItinerary.logistics;
+    // Persist trip settings
+    data.startDate = currentItinerary.startDate;
+    data.durationDays = currentItinerary.durationDays;
+    data.travelers = currentItinerary.travelers;
+    data.interests = currentItinerary.interests;
 
     return data;
   } catch (error) {
@@ -216,7 +230,10 @@ export const recalculateDaySchedule = async (activities: Activity[], previousLoc
     1. Calculate realistic start times ('time') for each activity sequentially.
     2. Account for travel time between the previous location (or start location) and the current activity.
     3. Respect 'isLocked' activities.
-    4. Generate a 'transportToNext' string for each activity.
+    4. Generate a 'transportToNext' string for each activity detailing how to get to the *next* activity.
+       Format: "Mode: Duration (Cost) | Mode: Duration (Cost)". 
+       Example: "Walk: 15m (Free) | Uber: 5m ($12) | Metro: 10m ($2)".
+       Use "End of Day" for the last activity.
 
     Output strictly valid JSON array of activities.
   `;

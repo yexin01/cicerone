@@ -79,6 +79,11 @@ export interface Itinerary {
   days: DayPlan[];
   logistics: TripLogistics;
   wishlist: WishlistItem[];
+  // Persisted Input Fields
+  startDate?: string;
+  durationDays?: number;
+  travelers?: number;
+  interests?: string[];
 }
 
 export interface ChatMessage {

@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Reorder, AnimatePresence, motion } from 'framer-motion';
-import { Itinerary, Activity, WishlistItem } from '../../shared/types';
-import { MapPin, Lock, Unlock, DollarSign, Share2, Plus, ArrowRight, Ban, ExternalLink, Link as LinkIcon, Edit3, Map, Star, ThumbsUp, ThumbsDown, Loader2, Navigation, Footprints, Car, Train, Bus, Bike, Sparkles, Save, Download } from 'lucide-react';
+import { Itinerary, Activity, WishlistItem, TripLogistics } from '../../shared/types';
+import { MapPin, Lock, Unlock, DollarSign, Share2, Plus, ArrowRight, Ban, ExternalLink, Link as LinkIcon, Edit3, Map, Star, ThumbsUp, ThumbsDown, Loader2, Navigation, Footprints, Car, Train, Bus, Bike, Sparkles, Save, Download, Cloud, Settings, Calendar, Users, Briefcase } from 'lucide-react';
 import MapComponent from './MapComponent';
 import { analyzeSocialContent } from '../../frontend/services/geminiService';
 
@@ -17,11 +17,12 @@ interface ItineraryViewProps {
   onRefineRequest: (prompt: string) => void;
   onReorderActivities: (dayIndex: number, newActivities: Activity[]) => void;
   onAddWishlistItem: (item: WishlistItem) => void;
+  onSave: () => Promise<void>;
   isRefining: boolean;
 }
 
 const ItineraryView: React.FC<ItineraryViewProps> = ({ 
-  itinerary, onUpdateActivity, onUpdateItinerary, onRefineRequest, onReorderActivities, onAddWishlistItem, isRefining 
+  itinerary, onUpdateActivity, onUpdateItinerary, onRefineRequest, onReorderActivities, onAddWishlistItem, onSave, isRefining 
 }) => {
   const [selectedDay, setSelectedDay] = useState(0);
   const [editingItem, setEditingItem] = useState<{ id: string, field: string } | null>(null);
@@ -30,6 +31,28 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
   const [showMap, setShowMap] = useState(true);
   const [highlightedActivity, setHighlightedActivity] = useState<string | null>(null);
   const [refineInput, setRefineInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Trip Settings State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [tripSettings, setTripSettings] = useState({
+      budget: itinerary.totalBudget,
+      travelers: itinerary.travelers || 1,
+      interests: itinerary.interests || [],
+      startDate: itinerary.startDate || new Date().toISOString().split('T')[0],
+      logistics: itinerary.logistics
+  });
+
+  // Sync settings when itinerary changes
+  useEffect(() => {
+    setTripSettings({
+        budget: itinerary.totalBudget,
+        travelers: itinerary.travelers || 1,
+        interests: itinerary.interests || [],
+        startDate: itinerary.startDate || new Date().toISOString().split('T')[0],
+        logistics: itinerary.logistics
+    });
+  }, [itinerary]);
 
   const calculateTotalCost = () => {
     let total = 0;
@@ -42,15 +65,13 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
   };
 
   const handleShare = () => {
-    // Basic simulation of sharing URL
     const baseUrl = window.location.href.split('?')[0];
     const dummyShareUrl = `${baseUrl}?planId=${itinerary.id}&share=true`;
     navigator.clipboard.writeText(dummyShareUrl);
-    alert(`Share Link Copied: ${dummyShareUrl}\n(Note: In a real app, this would point to a backend record)`);
+    alert(`Share Link Copied: ${dummyShareUrl}`);
   };
 
-  const handleSave = () => {
-    // Export to JSON
+  const handleExport = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(itinerary, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
@@ -58,6 +79,15 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
+  };
+
+  const handleCloudSave = async () => {
+      setIsSaving(true);
+      try {
+          await onSave();
+      } finally {
+          setIsSaving(false);
+      }
   };
 
   const handleAnalyzeLink = async () => {
@@ -84,6 +114,29 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
       onReorderActivities(selectedDay, newOrder);
   };
 
+  const handleApplySettings = () => {
+      // 1. Update local state objects immediately where possible
+      onUpdateItinerary({
+          totalBudget: tripSettings.budget,
+          travelers: tripSettings.travelers,
+          interests: tripSettings.interests,
+          startDate: tripSettings.startDate,
+          logistics: tripSettings.logistics
+      });
+
+      // 2. Formulate a prompt describing changes for the AI
+      const changes = [];
+      if (tripSettings.budget !== itinerary.totalBudget) changes.push(`Budget changed to ${tripSettings.budget}`);
+      if (tripSettings.travelers !== itinerary.travelers) changes.push(`Travelers changed to ${tripSettings.travelers}`);
+      if (JSON.stringify(tripSettings.interests) !== JSON.stringify(itinerary.interests)) changes.push(`Interests changed to: ${tripSettings.interests.join(', ')}`);
+      if (tripSettings.logistics.arrival.time !== itinerary.logistics.arrival.time) changes.push(`Arrival changed to ${tripSettings.logistics.arrival.time}`);
+      
+      const prompt = `The user updated the trip parameters: ${changes.join('. ')}. Please adjust the itinerary activities, costs, and schedule to fit these new constraints.`;
+      
+      onRefineRequest(prompt);
+      setIsSettingsOpen(false);
+  };
+
   const getTypeColor = (type: string) => {
     switch(type) {
       case 'food': return 'text-orange-500 bg-orange-500/10 border-orange-500/20';
@@ -97,16 +150,13 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
   const TransportDisplay = ({ activity }: { activity: Activity }) => {
     const rawText = activity.transportToNext || '';
     const options = rawText.split('|').map(t => t.trim()).filter(Boolean);
-    const selected = activity.selectedTransport || options[0]; // Default to first
+    const selected = activity.selectedTransport || options[0]; 
 
     const parseOption = (opt: string) => {
-        // Regex to capture: Mode: Time (Cost)
-        // Matches "Walk: 30m" or "Taxi: 15m ($10)"
         const match = opt.match(/^([^:]+):\s*([^(\n]+)(?:\s*\(([^)]+)\))?$/);
         if (match) {
             return { mode: match[1].trim(), time: match[2].trim(), cost: match[3]?.trim(), original: opt };
         }
-        // Fallback split
         const parts = opt.split(':');
         return { 
             mode: parts[0]?.trim() || 'Transport', 
@@ -118,36 +168,12 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
 
     const getModeConfig = (modeStr: string) => {
         const m = modeStr.toLowerCase();
-        if (m.includes('walk') || m.includes('foot')) return { 
-            icon: Footprints, 
-            color: 'text-emerald-600 dark:text-emerald-400', 
-            bg: 'bg-emerald-100 dark:bg-emerald-900/30' 
-        };
-        if (m.includes('taxi') || m.includes('car') || m.includes('uber') || m.includes('drive')) return { 
-            icon: Car, 
-            color: 'text-amber-600 dark:text-amber-400', 
-            bg: 'bg-amber-100 dark:bg-amber-900/30' 
-        };
-        if (m.includes('train') || m.includes('metro') || m.includes('subway') || m.includes('rail')) return { 
-            icon: Train, 
-            color: 'text-blue-600 dark:text-blue-400', 
-            bg: 'bg-blue-100 dark:bg-blue-900/30' 
-        };
-        if (m.includes('bus')) return { 
-            icon: Bus, 
-            color: 'text-indigo-600 dark:text-indigo-400', 
-            bg: 'bg-indigo-100 dark:bg-indigo-900/30' 
-        };
-        if (m.includes('bike') || m.includes('cycle')) return {
-            icon: Bike,
-            color: 'text-cyan-600 dark:text-cyan-400',
-            bg: 'bg-cyan-100 dark:bg-cyan-900/30'
-        };
-        return { 
-            icon: Navigation, 
-            color: 'text-zinc-600 dark:text-zinc-400', 
-            bg: 'bg-zinc-100 dark:bg-zinc-800' 
-        };
+        if (m.includes('walk') || m.includes('foot')) return { icon: Footprints, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-900/30' };
+        if (m.includes('taxi') || m.includes('car') || m.includes('uber') || m.includes('drive')) return { icon: Car, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
+        if (m.includes('train') || m.includes('metro') || m.includes('subway') || m.includes('rail')) return { icon: Train, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30' };
+        if (m.includes('bus')) return { icon: Bus, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-100 dark:bg-indigo-900/30' };
+        if (m.includes('bike') || m.includes('cycle')) return { icon: Bike, color: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-100 dark:bg-cyan-900/30' };
+        return { icon: Navigation, color: 'text-zinc-600 dark:text-zinc-400', bg: 'bg-zinc-100 dark:bg-zinc-800' };
     };
 
     const handleSelect = (option: string) => {
@@ -189,22 +215,17 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
                                 <span className={`text-xs font-bold leading-none mb-1 ${isSelected ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
                                     {mode}
                                 </span>
-                                <span className="text-[10px] text-zinc-500 font-medium">
-                                    {time}
-                                </span>
+                                <span className="text-[10px] text-zinc-500 font-medium">{time}</span>
                             </div>
                             {cost && (
                                 <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded ${
                                     isSelected 
                                     ? (cost.toLowerCase().includes('free') ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300')
                                     : 'text-zinc-400 bg-zinc-50 dark:bg-zinc-900'
-                                }`}>
-                                    {cost}
-                                </span>
+                                }`}>{cost}</span>
                             )}
                         </div>
                         
-                        {/* Radio indicator */}
                         <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                             isSelected ? 'border-primary bg-primary' : 'border-zinc-300 dark:border-zinc-600 group-hover:border-zinc-400'
                         }`}>
@@ -219,7 +240,173 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col">
+    <div className="w-full max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col relative">
+      
+      {/* Edit Trip Details Panel (Slide-over) */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <>
+            <motion.div 
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               onClick={() => setIsSettingsOpen(false)}
+               className="absolute inset-0 z-20 bg-black/20 backdrop-blur-sm rounded-2xl"
+            />
+            <motion.div 
+               initial={{ x: '100%' }}
+               animate={{ x: 0 }}
+               exit={{ x: '100%' }}
+               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+               className="absolute top-0 right-0 bottom-0 w-full md:w-[400px] z-30 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-y-auto"
+            >
+               <div className="p-6">
+                  <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-xl font-bold font-heading flex items-center gap-2">
+                          <Settings className="w-5 h-5 text-primary"/> Trip Settings
+                      </h2>
+                      <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full">
+                          <ExternalLink className="w-5 h-5 rotate-180" />
+                      </button>
+                  </div>
+                  
+                  <div className="space-y-6">
+                      {/* Basics */}
+                      <div className="space-y-4">
+                          <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Trip Basics</label>
+                          <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                  <span className="text-xs text-zinc-400">Start Date</span>
+                                  <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                      <Calendar className="w-4 h-4 text-zinc-400"/>
+                                      <input 
+                                          type="date" 
+                                          value={tripSettings.startDate}
+                                          onChange={(e) => setTripSettings({...tripSettings, startDate: e.target.value})}
+                                          className="bg-transparent w-full text-sm outline-none"
+                                      />
+                                  </div>
+                              </div>
+                              <div className="space-y-1">
+                                  <span className="text-xs text-zinc-400">Travelers</span>
+                                  <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                      <Users className="w-4 h-4 text-zinc-400"/>
+                                      <input 
+                                          type="number" 
+                                          min="1"
+                                          value={tripSettings.travelers}
+                                          onChange={(e) => setTripSettings({...tripSettings, travelers: parseInt(e.target.value)})}
+                                          className="bg-transparent w-full text-sm outline-none"
+                                      />
+                                  </div>
+                              </div>
+                          </div>
+                          <div className="space-y-1">
+                                  <span className="text-xs text-zinc-400">Total Budget ({itinerary.currency})</span>
+                                  <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                      <DollarSign className="w-4 h-4 text-zinc-400"/>
+                                      <input 
+                                          type="number" 
+                                          value={tripSettings.budget}
+                                          onChange={(e) => setTripSettings({...tripSettings, budget: parseFloat(e.target.value)})}
+                                          className="bg-transparent w-full text-sm outline-none"
+                                      />
+                                  </div>
+                          </div>
+                      </div>
+
+                      {/* Logistics */}
+                      <div className="space-y-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                           <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Logistics</label>
+                           <div className="bg-zinc-50 dark:bg-zinc-800/50 p-3 rounded-xl border border-zinc-200 dark:border-zinc-700 space-y-3">
+                               <div className="grid grid-cols-2 gap-2">
+                                   <div className="space-y-1">
+                                       <span className="text-[10px] text-zinc-400 uppercase font-bold">Arrival Time</span>
+                                       <input 
+                                          type="time" 
+                                          value={tripSettings.logistics.arrival.time}
+                                          onChange={(e) => setTripSettings({
+                                              ...tripSettings, 
+                                              logistics: { ...tripSettings.logistics, arrival: { ...tripSettings.logistics.arrival, time: e.target.value }}
+                                          })}
+                                          className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded p-1.5 text-xs"
+                                       />
+                                   </div>
+                                   <div className="space-y-1">
+                                       <span className="text-[10px] text-zinc-400 uppercase font-bold">Departure Time</span>
+                                       <input 
+                                          type="time" 
+                                          value={tripSettings.logistics.departure.time}
+                                          onChange={(e) => setTripSettings({
+                                              ...tripSettings, 
+                                              logistics: { ...tripSettings.logistics, departure: { ...tripSettings.logistics.departure, time: e.target.value }}
+                                          })}
+                                          className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded p-1.5 text-xs"
+                                       />
+                                   </div>
+                               </div>
+                               <div className="space-y-1">
+                                   <span className="text-[10px] text-zinc-400 uppercase font-bold">Accommodation</span>
+                                   <input 
+                                      value={tripSettings.logistics.accommodation.name}
+                                      onChange={(e) => setTripSettings({
+                                          ...tripSettings, 
+                                          logistics: { ...tripSettings.logistics, accommodation: { ...tripSettings.logistics.accommodation, name: e.target.value }}
+                                      })}
+                                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded p-1.5 text-xs"
+                                      placeholder="Hotel Name"
+                                   />
+                               </div>
+                           </div>
+                      </div>
+
+                      {/* Interests */}
+                      <div className="space-y-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                          <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Interests</label>
+                          <div className="flex flex-wrap gap-2">
+                              {['Food & Dining', 'History & Culture', 'Nature & Outdoors', 'Art & Museums', 'Nightlife', 'Shopping', 'Relaxation'].map(interest => (
+                                  <button
+                                      key={interest}
+                                      onClick={() => {
+                                          const newInterests = tripSettings.interests.includes(interest)
+                                              ? tripSettings.interests.filter(i => i !== interest)
+                                              : [...tripSettings.interests, interest];
+                                          setTripSettings({...tripSettings, interests: newInterests});
+                                      }}
+                                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                                          tripSettings.interests.includes(interest)
+                                          ? 'bg-primary/10 border-primary text-primary'
+                                          : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                                      }`}
+                                  >
+                                      {interest}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="mt-8 pt-6 border-t border-zinc-100 dark:border-zinc-800 flex gap-3">
+                      <button 
+                          onClick={() => setIsSettingsOpen(false)}
+                          className="flex-1 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 font-bold text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                      >
+                          Cancel
+                      </button>
+                      <button 
+                          onClick={handleApplySettings}
+                          className="flex-1 py-3 rounded-xl bg-primary text-white font-bold text-sm hover:bg-blue-600 flex items-center justify-center gap-2"
+                      >
+                          <Sparkles className="w-4 h-4"/> Apply & Refine
+                      </button>
+                  </div>
+               </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
         <div>
@@ -259,8 +446,29 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
            <button onClick={() => setShowMap(!showMap)} className="md:hidden flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs font-medium">
              <MapPin className="w-4 h-4" /> {showMap ? 'Hide Map' : 'Show Map'}
            </button>
-           <button onClick={handleSave} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors text-xs font-bold">
-             <Download className="w-4 h-4" /> Save
+           
+           {/* New Trip Details Button */}
+           <button 
+             onClick={() => setIsSettingsOpen(true)}
+             className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-xs font-bold"
+           >
+             <Briefcase className="w-4 h-4" /> Trip Details
+           </button>
+
+           <button 
+             onClick={handleExport}
+             className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-xs font-bold"
+             title="Download JSON file"
+           >
+             <Download className="w-4 h-4" /> Export
+           </button>
+           <button 
+             onClick={handleCloudSave} 
+             disabled={isSaving}
+             className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-primary text-white hover:bg-blue-600 transition-colors text-xs font-bold disabled:opacity-70"
+           >
+             {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Cloud className="w-4 h-4" />} 
+             {isSaving ? 'Saving...' : 'Save to Cloud'}
            </button>
            <button onClick={handleShare} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity text-xs font-bold">
              <Share2 className="w-4 h-4" /> Share
