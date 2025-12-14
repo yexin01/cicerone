@@ -6,9 +6,10 @@
 import React, { useState, useEffect } from 'react';
 import { Reorder, AnimatePresence, motion } from 'framer-motion';
 import { Itinerary, Activity, WishlistItem, TripLogistics } from '../../shared/types';
-import { MapPin, Lock, Unlock, DollarSign, Share2, Plus, ArrowRight, Ban, ExternalLink, Link as LinkIcon, Edit3, Map, Star, ThumbsUp, ThumbsDown, Loader2, Navigation, Footprints, Car, Train, Bus, Bike, Sparkles, Save, Download, Cloud, Settings, Calendar, Users, Briefcase } from 'lucide-react';
+import { MapPin, Lock, Unlock, DollarSign, Share2, Plus, ArrowRight, Ban, ExternalLink, Link as LinkIcon, Edit3, Map, Star, ThumbsUp, ThumbsDown, Loader2, Navigation, Footprints, Car, Train, Bus, Bike, Sparkles, Save, Download, Cloud, Settings, Calendar, Users, Briefcase, Sun } from 'lucide-react';
 import MapComponent from './MapComponent';
 import { analyzeSocialContent } from '../../frontend/services/geminiService';
+import { getDayWeather, getWeatherIcon, WeatherData } from '../../frontend/services/weatherService';
 
 interface ItineraryViewProps {
   itinerary: Itinerary;
@@ -32,6 +33,8 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
   const [highlightedActivity, setHighlightedActivity] = useState<string | null>(null);
   const [refineInput, setRefineInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [dailyWeather, setDailyWeather] = useState<WeatherData | null>(null);
+  const [loadingWeather, setLoadingWeather] = useState(false);
   
   // Trip Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -53,6 +56,41 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
         logistics: itinerary.logistics
     });
   }, [itinerary]);
+
+  // Fetch Weather when day changes
+  useEffect(() => {
+    const fetchWeather = async () => {
+        setLoadingWeather(true);
+        setDailyWeather(null);
+        try {
+            const day = itinerary.days[selectedDay];
+            if (!day) return;
+
+            // Find first activity with coordinates to determine location for the day
+            // If no activity has coordinates, try accommodation, then fallback to nothing
+            const actWithCoords = day.activities.find(a => a.coordinates && a.coordinates.lat);
+            
+            let lat, lng;
+            if (actWithCoords?.coordinates) {
+                lat = actWithCoords.coordinates.lat;
+                lng = actWithCoords.coordinates.lng;
+            } else if (itinerary.logistics.accommodation.coordinates) {
+                lat = itinerary.logistics.accommodation.coordinates.lat;
+                lng = itinerary.logistics.accommodation.coordinates.lng;
+            }
+
+            if (lat && lng) {
+                const weather = await getDayWeather(lat, lng, day.date);
+                setDailyWeather(weather);
+            }
+        } catch (e) {
+            console.error("Weather fetch failed", e);
+        } finally {
+            setLoadingWeather(false);
+        }
+    };
+    fetchWeather();
+  }, [selectedDay, itinerary]);
 
   const calculateTotalCost = () => {
     let total = 0;
@@ -238,6 +276,30 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
       </div>
     );
   }
+
+  const WeatherWidget = () => {
+     if (loadingWeather) return (
+         <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-50 dark:bg-zinc-800 px-3 py-1 rounded-full animate-pulse">
+             <Sun className="w-3 h-3"/> Loading Forecast...
+         </div>
+     );
+     
+     if (!dailyWeather) return null;
+
+     const { icon: Icon, label, color } = getWeatherIcon(dailyWeather.weatherCode);
+
+     return (
+         <div className="flex items-center gap-3 bg-gradient-to-r from-blue-50 to-white dark:from-blue-900/20 dark:to-zinc-900 border border-blue-100 dark:border-blue-900/30 px-3 py-1.5 rounded-full shadow-sm">
+             <Icon className={`w-4 h-4 ${color}`} />
+             <div className="flex flex-col leading-none">
+                 <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{label}</span>
+                 <span className="text-xs font-mono font-bold">
+                     {dailyWeather.maxTemp}° / <span className="text-zinc-400">{dailyWeather.minTemp}°</span>
+                 </span>
+             </div>
+         </div>
+     );
+  };
 
   return (
     <div className="w-full max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col relative">
@@ -569,18 +631,21 @@ const ItineraryView: React.FC<ItineraryViewProps> = ({
         <div className="lg:w-2/5 flex flex-col h-full bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden relative">
            <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 shrink-0 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-sm z-10 sticky top-0 flex justify-between items-center">
                <h2 className="font-bold text-lg">Day {itinerary.days[selectedDay].dayNumber} Timeline</h2>
-               <AnimatePresence>
-                 {isRefining && (
-                    <motion.div 
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0 }}
-                        className="flex items-center gap-2 text-xs text-primary font-medium bg-primary/10 px-3 py-1 rounded-full"
-                    >
-                        <Loader2 className="w-3 h-3 animate-spin"/> Optimizing Schedule...
-                    </motion.div>
-                 )}
-               </AnimatePresence>
+               <div className="flex items-center gap-2">
+                 <WeatherWidget />
+                 <AnimatePresence>
+                   {isRefining && (
+                      <motion.div 
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0 }}
+                          className="flex items-center gap-2 text-xs text-primary font-medium bg-primary/10 px-3 py-1 rounded-full"
+                      >
+                          <Loader2 className="w-3 h-3 animate-spin"/> Optimizing Schedule...
+                      </motion.div>
+                   )}
+                 </AnimatePresence>
+               </div>
            </div>
            
            <div className="flex-1 overflow-y-auto p-4 scroll-smooth">
